@@ -8,7 +8,7 @@
 classdef AltitudeSensorSITL < handle
     properties
         Fs (1,1) double = 50;     % Sample rate [Hz]
-        dt (1,1) double = 1/Fs;   % Sample period [s]
+        dt (1,1) double = 0.02;   % Sample period [s]
 
         % TODO: external injector (noise + faults)
         % Handle object with method:
@@ -21,15 +21,40 @@ classdef AltitudeSensorSITL < handle
         AltitudeOut (1,1) double = NaN;   % last output value after injector
     end
 
+    properties (Access = private)
+        dtWasExplicitlySet (1,1) logical = false;
+    end
+
     methods
         function obj = AltitudeSensorSITL(varargin)
             % Name-value init
             for k = 1:2:numel(varargin)
-                obj.(varargin{k}) = varargin{k+1};
+                name = varargin{k};
+                val  = varargin{k+1};
+
+                if strcmpi(name, "dt")
+                    obj.dtWasExplicitlySet = true;
+                end
+
+                obj.(name) = val;
             end
-            if isempty(obj.dt) || obj.dt <= 0
+
+            % If dt wasn't explicitly set, derive it from Fs
+            if ~obj.dtWasExplicitlySet
                 obj.dt = 1/obj.Fs;
             end
+        end
+
+        function obj = set.Fs(obj, newFs)
+            obj.Fs = newFs;
+            if ~obj.dtWasExplicitlySet
+                obj.dt = 1/obj.Fs;
+            end
+        end
+
+        function obj = set.dt(obj, newDt)
+            obj.dt = newDt;
+            obj.dtWasExplicitlySet = true;
         end
 
         function altOut = step(obj, trueAltitude)
