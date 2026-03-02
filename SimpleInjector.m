@@ -16,8 +16,10 @@ classdef SimpleInjector < handle
         % Fault start rate (approx) [1/s]
         FaultRatePerSecond (1,1) double = 0.0
 
-        % How long a fault lasts once started
-        FaultDurationSeconds (1,1) double = 0.5
+        % How long a fault lasts once started - randomised duration between
+        % 0.2 and 0.6 seconds
+        MinFaultDuration (1,1) double = 0.5
+        MaxFaultDuration (1,1) double = 0.5
 
         % If true, faults latch once started (never recover)
         LatchFault (1,1) logical = false
@@ -131,7 +133,12 @@ classdef SimpleInjector < handle
 
         function startFault(obj, xAtStart)
             obj.faultActive = true;
-            obj.tLeft = obj.FaultDurationSeconds;
+            if obj.MaxFaultDuration <= obj.MinFaultDuration
+                obj.tLeft = obj.MinFaultDuration; % Fault handling in case numbers are confused
+            else
+                obj.tLeft = obj.MinFaultDuration + ...
+                    (obj.MaxFaultDuration - obj.MinFaultDuration) * rand(); % Make a random number between the defined bounds
+            end
             obj.spikeDone = false;
             obj.driftAccum = 0;
 

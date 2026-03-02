@@ -10,8 +10,12 @@ clear; clc;
 %% Simulation parameters
 Fs = 50;                 % master simulation rate
 dt = 1/Fs;
-Tsim = 5;                % seconds
+Tsim = 20;                % seconds
 t = 0:dt:Tsim;
+
+%% Randomness / repeatability mode
+MODE = "montecarlo";   % "repeatable" | "montecarlo"
+runId = 1;             % only used for repeatable mode to vary scenario intentionally
 
 %% Instantiate sensors (dumb versions)
 altSensor   = AltitudeSensorSITL("Fs", Fs);
@@ -23,22 +27,27 @@ tempSensor  = EngineTempSensorSITL("Fs", Fs);
 oilSensor   = OilPressureSensorSITL("Fs", Fs);
 
 %% Attach injectors (separate injector per sensor for independent faulting)
+
+if MODE == "montecarlo"
+    rng("shuffle");   % ensure randi() differs each run
+end
+
 enableFaults = true;
 if enableFaults
-    altSensor.Injector   = SimpleInjector("Seed",1, "NoiseSigma",0.05, "FaultRatePerSecond",0.15, "FaultDurationSeconds",0.25, ...
-                                          "BiasMagnitude",2, "DriftRateMagnitude",0.2, "SpikeMagnitude",20, "W_Dropout",1);
-    vsSensor.Injector    = SimpleInjector("Seed",2, "NoiseSigma",0.05, "FaultRatePerSecond",0.15, "FaultDurationSeconds",0.25, ...
-                                          "BiasMagnitude",1, "DriftRateMagnitude",0.1, "SpikeMagnitude",10, "W_Dropout",1);
-    asSensor.Injector    = SimpleInjector("Seed",3, "NoiseSigma",0.05, "FaultRatePerSecond",0.15, "FaultDurationSeconds",0.25, ...
-                                          "BiasMagnitude",1, "DriftRateMagnitude",0.1, "SpikeMagnitude",5,  "W_Dropout",1);
-    pitchSensor.Injector = SimpleInjector("Seed",4, "NoiseSigma",0.05, "FaultRatePerSecond",0.15, "FaultDurationSeconds",0.25, ...
-                                          "BiasMagnitude",0.5,"DriftRateMagnitude",0.05,"SpikeMagnitude",5,  "W_Dropout",1);
-    rollSensor.Injector  = SimpleInjector("Seed",5, "NoiseSigma",0.05, "FaultRatePerSecond",0.15, "FaultDurationSeconds",0.25, ...
-                                          "BiasMagnitude",1, "DriftRateMagnitude",0.05,"SpikeMagnitude",8,  "W_Dropout",1);
-    tempSensor.Injector  = SimpleInjector("Seed",6, "NoiseSigma",0.05, "FaultRatePerSecond",0.10, "FaultDurationSeconds",0.35, ...
-                                          "BiasMagnitude",2, "DriftRateMagnitude",0.2, "SpikeMagnitude",15, "W_Dropout",1);
-    oilSensor.Injector   = SimpleInjector("Seed",7, "NoiseSigma",0.05, "FaultRatePerSecond",0.10, "FaultDurationSeconds",0.35, ...
-                                          "BiasMagnitude",5, "DriftRateMagnitude",0.5, "SpikeMagnitude",50, "W_Dropout",1);
+    altSensor.Injector   = SimpleInjector("Seed", pickSeed(MODE,runId,1), "NoiseSigma",0.2, "FaultRatePerSecond",0.2, "MinFaultDuration",0.2, ...
+                                          "MaxFaultDuration",0.6,"BiasMagnitude",2, "DriftRateMagnitude",0.2, "SpikeMagnitude",20, "W_Dropout",1);
+    vsSensor.Injector    = SimpleInjector("Seed", pickSeed(MODE,runId,2), "NoiseSigma",0.2, "FaultRatePerSecond",0.2, "MinFaultDuration",0.2, ...
+                                           "MaxFaultDuration",0.6,"BiasMagnitude",1, "DriftRateMagnitude",0.1, "SpikeMagnitude",10, "W_Dropout",1);
+    asSensor.Injector    = SimpleInjector("Seed", pickSeed(MODE,runId,3), "NoiseSigma",0.2, "FaultRatePerSecond",0.2, "MinFaultDuration",0.2, ...
+                                          "MaxFaultDuration",0.6,"BiasMagnitude",1, "DriftRateMagnitude",0.1, "SpikeMagnitude",5,  "W_Dropout",1);
+    pitchSensor.Injector = SimpleInjector("Seed", pickSeed(MODE,runId,4), "NoiseSigma",0.2, "FaultRatePerSecond",0.2, "MinFaultDuration",0.2, ...
+                                          "MaxFaultDuration",0.6,"BiasMagnitude",0.5,"DriftRateMagnitude",0.05,"SpikeMagnitude",5,  "W_Dropout",1);
+    rollSensor.Injector  = SimpleInjector("Seed", pickSeed(MODE,runId,5), "NoiseSigma",0.2, "FaultRatePerSecond",0.2, "MinFaultDuration",0.2, ...
+                                          "MaxFaultDuration",0.6,"BiasMagnitude",1, "DriftRateMagnitude",0.05,"SpikeMagnitude",8,  "W_Dropout",1);
+    tempSensor.Injector  = SimpleInjector("Seed", pickSeed(MODE,runId,6), "NoiseSigma",0.2, "FaultRatePerSecond",0.2, "MinFaultDuration",0.2, ...
+                                          "MaxFaultDuration",0.6,"BiasMagnitude",2, "DriftRateMagnitude",0.2, "SpikeMagnitude",15, "W_Dropout",1);
+    oilSensor.Injector   = SimpleInjector("Seed", pickSeed(MODE,runId,7), "NoiseSigma",0.2, "FaultRatePerSecond",0.10, "MinFaultDuration",0.2, ...
+                                          "MaxFaultDuration",0.6,"BiasMagnitude",5, "DriftRateMagnitude",0.5, "SpikeMagnitude",50, "W_Dropout",1);
 end
 
 %% Instantiate monitors (conditioning + health state machines)
@@ -67,7 +76,7 @@ fprintf("-----------------------------------------------------------------------
 stateCode = @(s) localStateCode(s);
 
 %% Main loop
-printEvery = round(0.2/dt);
+printEvery = round(0.1/dt);
 
 for k = 1:length(t)
     tt = t(k);
@@ -123,5 +132,20 @@ function c = localStateCode(s)
         c = 'F';
     else
         c = '?';
+    end
+end
+
+function s = pickSeed(MODE, runId, sensorIndex)
+% pickSeed: returns a seed for a given sensor
+% - repeatable: deterministic but can be varied with runId
+% - montecarlo: different each run, but still independent per sensor
+
+    switch MODE
+        case "repeatable"
+            s = 1000 + runId*100 + sensorIndex;   % deterministic & easy to cite
+        case "montecarlo"
+            s = randi(1e9);                       % new each run
+        otherwise
+            error("Unknown MODE: %s", MODE);
     end
 end
