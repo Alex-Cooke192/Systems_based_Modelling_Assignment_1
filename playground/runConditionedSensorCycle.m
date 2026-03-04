@@ -67,20 +67,18 @@ trueRoll  = @(tt) 10*sin(0.4*tt);
 trueTemp  = @(tt) 80 + 0.5*tt;
 trueOil   = @(tt) 400 + 10*sin(0.3*tt);
 
-%% Header (conditioned outputs + state codes)
-fprintf("\nConditioned Sensor Outputs\n");
-fprintf("Time | Alt(m)  AltSt AltFlt | VS(m/s)  VSSt VSFlt | AS(m/s)  ASSt ASFlt | Pitch(deg) PSt PFlt | Roll(deg) RSt RFlt | Temp(C)  TSt TFlt | Oil(kPa)  OSt OFlt\n");
-fprintf("-------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
+%% Instantiate Orchestrator Object
+orchestrator = SensorOrchestrator("Fs", Fs); 
 
-stateCode = @(s) localStateCode(s);
+%% Create logger & attach as property to orchestrator object
+logger = Logger(); 
+orchestrator.logger = logger; 
 
-%% Main loop
-printEvery = round(0.1/dt);
+fprintf("\nOrchestrator Outputs\n")
 
 for k = 1:length(t)
-    tt = t(k);
-
-    % True values
+    tt = t(k); 
+    % Get all current values
     altT = trueAlt(tt);
     vsT  = trueVS(tt);
     asT  = trueAS(tt);
@@ -107,7 +105,7 @@ for k = 1:length(t)
     [tmpC, tmpS] = tempMon.step(tmpMeas);
     [oilC, oilS] = oilMon.step(oilMeas);
 
-    % Decide what to print as "fault type" (only show when S/F)
+    % Decide what to print as "fault type" for each sensor (only show when S/F)
     altF = faultLabelIfSF(altS, altMeta);
     vsF  = faultLabelIfSF(vsS,  vsMeta);
     asF  = faultLabelIfSF(asS,  asMeta);
@@ -116,33 +114,66 @@ for k = 1:length(t)
     tmpF = faultLabelIfSF(tmpS, tmpMeta);
     oilF = faultLabelIfSF(oilS, oilMeta);
 
-    % Print
-    if mod(k, printEvery) == 0
-        fprintf("%4.1f | %7.2f   %1s   %-7s | %7.2f   %1s   %-7s | %7.2f   %1s   %-7s | %9.2f   %1s   %-7s | %8.2f   %1s   %-7s | %7.2f   %1s   %-7s | %8.2f   %1s   %-7s\n", ...
-            tt, ...
-            altC, stateCode(altS), altF, ...
-            vsC,  stateCode(vsS),  vsF,  ...
-            asC,  stateCode(asS),  asF,  ...
-            pitC, stateCode(pitS), pitF, ...
-            rolC, stateCode(rolS), rolF, ...
-            tmpC, stateCode(tmpS), tmpF, ...
-            oilC, stateCode(oilS), oilF);
+    % Plug into orchestrator and step
+    states = struct(...
+        "AltitudeSensor",altS,...
+        "AirspeedSensor",asS,...
+        "VerticalSpeedSensor",vsS, ...
+        "PitchSensor",pitS,...
+        "RollSensor",rolS,...
+        "TemperatureSensor",tmpS,...
+        "PressureSensor",oilS);
+    values = struct(...
+        "Altitude",altC,...
+        "VerticalSpeed",vsC);
+    
+
+    [state, logMsg, diagnostics] = orchestrator.step(states, values, tt);
+    
+    % 1) Overall system state string comes from orchestrator
+    sysStateStr = state;
+    
+    % 2) Map system state string -> sysS ('N','S','F')
+    switch upper(string(sysStateStr))
+        case "NORMAL"
+            sysS = 'N';
+        case "WARN"
+            sysS = 'S';
+        case {"FAIL","FAILED","FAULT"}
+            sysS = 'F';
+        otherwise
+            sysS = 'N';
     end
-end
+    
+    % 3) Create Sysmeta.label from sensor states (simple cause selection)
+    Sysmeta = struct("label","");
+    
+    names  = ["ALT","VS","AS","PIT","ROL","TMP","OIL"];
+    sStates = [altS,  vsS,  asS,  pitS,  rolS,  tmpS,  oilS];
+    
+    % NOTE: your monitor outputs are strings like "SUSPECT"/"FAILED"/"OK"
+    idxF = find(sStates == "FAILED",  1, "first");
+    idxS = find(sStates == "SUSPECT", 1, "first");
+    
+    if ~isempty(idxF)
+        Sysmeta.label = "SensorFailed:" + names(idxF);
+    elseif ~isempty(idxS)
+        Sysmeta.label = "SensorSuspect:" + names(idxS);
+    else
+        Sysmeta.label = "";
+    end
+    
+    % 4) Overall label only when WARN/FAIL
+    sysF = OverallFaultLabelIfSF(sysS, Sysmeta);
+    
+    fprintf("System: %s (%c)  Cause: %s\n", sysStateStr, sysS, sysF);
+    
+        fprintf("Current State: %s \n", state)
+        fprintf("Log Message: %s \n", logMsg)
+        disp(diagnostics)
+    end 
 
 fprintf("\nSimulation complete.\n");
-
-function c = localStateCode(s)
-    if s == "OK"
-        c = 'O';
-    elseif s == "SUSPECT"
-        c = 'S';
-    elseif s == "FAILED"
-        c = 'F';
-    else
-        c = '?';
-    end
-end
 
 function s = pickSeed(MODE, runId, sensorIndex)
 % pickSeed: returns a seed for a given sensor
@@ -171,5 +202,13 @@ function label = faultLabelIfSF(stateStr, meta)
         end
     else
         label = "-";
+    end
+end
+
+function lab = OverallFaultLabelIfSF(sysS, Sysmeta)
+    if sysS=='S' || sysS=='F'
+        lab = Sysmeta.label;
+    else
+        lab = "";
     end
 end
