@@ -1,3 +1,4 @@
+
 %% SensorOrchestrator.m
 % System states: "NORMAL", "WARN", "FAULT"
 % Sensor states: "OK", "SUSPECT", "FAIL"
@@ -16,6 +17,9 @@ classdef SensorOrchestrator < handle
         T_warn (1,1) double = 0.5
         T_fault (1,1) double = 0.7
         T_redundancyThreshold (1,1) double = 0.2
+
+        % Cooloff period after state transition
+        T_cooldown (1,1) double = 0.5 
 
         % Time Threshold for FAIL -> WARN / FAULT recovery gating
         T_recover (1,1) double = 0.4
@@ -39,13 +43,13 @@ classdef SensorOrchestrator < handle
         % Altitude history for slope estimation
         AltitudeHistory (:,1) double = []
 
+        % Cooldown timer & flag
+        cooldownPeriod (1,1) double = 0 
+
+        stateChangePossibleFlag (1,1) logical = true
+
         % Latch to store if Log file has been made for this run
         LogEnabled = false
-
-        % Timers for transitions between states to add hysteresis
-        tWarnHold (1,1) double = 0
-        tFaultHold (1,1) double = 0
-        tClearHold (1,1) double = 0
     end
 
     properties (Access = private)
@@ -54,8 +58,6 @@ classdef SensorOrchestrator < handle
         hasFirstValid (1,1) logical = false
 
         % timers
-        tSuspect (1,1) double = 0
-        tFailed  (1,1) double = 0
         tClear   (1,1) double = 0
         tRecover (1,1) double = 0
         tRedMis  (1,1) double = 0
@@ -93,8 +95,8 @@ classdef SensorOrchestrator < handle
             obj.state = "INIT";
             obj.hasFirstValid = false;
 
-            % reset hysteresis timers
-            obj.tSuspect = 0; obj.tFailed = 0; obj.tClear = 0; obj.tRecover = 0;
+            % reset transition timers
+            obj.tClear = 0; obj.tRecover = 0;
             obj.tRedMis = 0; obj.tRedSev = 0;
         end
 
@@ -149,89 +151,74 @@ classdef SensorOrchestrator < handle
             redundancyWarnNow  = obj.RedundancyMismatchDuration >= obj.T_redundancyThreshold;
             redundancyFaultNow = obj.RedundancyMismatchDuration >= obj.T_fault;
 
-            % Hysteresis accumulators
-            if anySuspectNow && ~anyFailNow
-                obj.tSuspect = obj.tSuspect + obj.dt;
-            else
-                obj.tSuspect = 0;
-            end
-
-            if anyFailNow
-                obj.tFailed = obj.tFailed + obj.dt;
-            else
-                obj.tFailed = 0;
-            end
-
-            % Redundancy timers: integrate the raw mismatch condition
+            % State transitions can only occur after fixed cooldowns (no
+            % hysteresis implemented to account for noise/fluctuation
+            % THIS IS A CONSTRAINT
+            
             if obj.RedundancyMismatch
-                obj.tRedMis = obj.tRedMis + obj.dt;
-                obj.tRedSev = obj.tRedSev + obj.dt;  % no separate severity yet
+                obj.tRedMis = obj.tRedMis + obj.dt; 
+                obj.tRedSev = obj.tRedMis + obj.dt; 
             else
                 obj.tRedMis = 0;
                 obj.tRedSev = 0;
             end
 
-            % CHANGED: split "clear" vs "recover" so FAULT doesn't flicker
-            % between on/off
-            % Clear (for WARN->NORMAL): truly clean system
-            clearCond = allOK && ~obj.RedundancyMismatch;
+                % State machine for state transitions
+                %% TODO: Add redundancy mismatch into state transition conditions
+                switch obj.state
+                    % If in normal, check if FAULT has been present for >
+                    % T_recover
+                    case "FAULT"
+                        if obj.tRecover >= obj.T_recover
+                            % We can move
 
-            if clearCond
-                obj.tClear = obj.tClear + obj.dt;
-            else
-                obj.tClear = 0;
-            end
+                            % Check transition to warn
+                            if ~anyFailNow && anySuspectNow
+                                obj.state = "WARN"; 
+    
+                            % Check transition to normal
+                            elseif ~anyFailNow && ~anySuspectNow
+                                obj.state = "NORMAL";
 
-            % Recover (for FAULT exit): failures are gone and redundancy mismatch gone.
-            % (does NOT require all sensors OK; allows landing in WARN if SUSPECT remains)
-            recoverCond = (~anyFailNow) && (~obj.RedundancyMismatch);
+                            end 
 
-            if recoverCond
-                obj.tRecover = obj.tRecover + obj.dt;
-            else
-                obj.tRecover = 0;
-            end
-
-            % Convert redundancy timers to debounced warn/fault thresholds
-            redWarnHold  = obj.tRedMis >= obj.T_warn;
-            redFaultHold = obj.tRedSev >= obj.T_fault;
-
-            switch obj.state
-                case "INIT"
-                    obj.hasFirstValid = true;
-                    if obj.hasFirstValid
-                        obj.state = "NORMAL";
-                        obj.tSuspect = 0; obj.tFailed = 0; obj.tRedMis = 0; obj.tRedSev = 0;
-                        obj.tClear = 0; obj.tRecover = 0;
-                    end
-
-                case "NORMAL"
-                    if obj.tFailed >= obj.T_fault || redFaultHold
-                        obj.state = "FAULT";
-                    elseif obj.tSuspect >= obj.T_warn || redWarnHold
-                        obj.state = "WARN";
-                    end
-
-                case "WARN"
-                    if obj.tFailed >= obj.T_fault || redFaultHold
-                        obj.state = "FAULT";
-                    elseif obj.tClear >= obj.T_clear
-                        obj.state = "NORMAL";
-                    end
-
-                case "FAULT"
-                    % CHANGED: latch FAULT until recoverCond holds for T_recover
-                    if obj.tRecover >= obj.T_recover
-                        % after recovery time is met, decide where to go
-                        % next based on other sensors states
-                        if anySuspectNow || redWarnHold
-                            obj.state = "WARN";
                         else
-                            obj.state = "NORMAL";
+                            % Add to timer
+                            obj.tRecover = obj.tRecover + obj.dt; 
+                        end 
+
+                    case "WARN"
+                        % Check if we have been longer than T_clear
+                        if obj.tClear >= obj.T_clear
+                            % We can move
+
+                            % Check transition to Fault
+                            if anyFailNow | obj.tRedSev >= obj.T_fault
+                                obj.state = "FAULT"
+    
+                            % Check transition to normal
+                            elseif allOK && ~redundancyFaultNow && ~redundancyWarnNow
+                                obj.state = "NORMAL"; 
+    
+                            end
+                        else 
+                            % If not, add to timer 
+                            obj.tClear = obj.T_clear + obj.dt; 
                         end
-                    end
-                    % ------------------------------------------------------------------
-            end
+
+                    case "NORMAL"
+                         % Check transition to fault
+                        if anyFailNow | obj.tRedSev >= obj.T_fault 
+                            obj.state = "FAULT"; 
+
+                        % Check transition to warn
+                        elseif ~anyFailNow && anySuspectNow | obj.tRedMis > obj.T_warn
+                            obj.state = "WARN"; 
+
+                        end
+                end 
+               
+
 
             % publish internal state machine state outward
             obj.State = obj.state;
@@ -255,8 +242,8 @@ classdef SensorOrchestrator < handle
             diagnostics.redundancyFaultNow = redundancyFaultNow;
 
             state = obj.State;
-        end
-    end
+        end 
+    end 
 
     methods (Access = private)
         function pushAltitude(obj, altitude)
