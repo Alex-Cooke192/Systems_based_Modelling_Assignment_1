@@ -89,6 +89,25 @@ classdef Logger < handle
             fprintf(obj.fid, '%d,"%s","%s","%s", "%s"\n', id, prevState, timestamp, simtime, newState);
         end
 
+        function logTime(obj, prevState, timestamp, simtime)
+            if ~obj.IsInitialized || obj.fid < 0
+                error("Logger:NotInitialized", "Logger not initialized. Create Logger() or call startRun().");
+            end
+
+            prevState = string(prevState); 
+
+            id = obj.NextID;
+            obj.NextID = obj.NextID + 1;
+
+            disp("Simtime")
+            disp(simtime)
+            disp("Timestamp")
+            disp(timestamp)
+
+            % Quote string fields for CSV safety
+            fprintf(obj.fid, '%d,"%s","%s","%.2f", "-"\n', id, prevState, timestamp, simtime);
+        end 
+
         function close(obj)
             if obj.fid >= 0
                 fclose(obj.fid);
