@@ -137,9 +137,9 @@ for run = 1:N
         
             switch FaultType
                 case "BIAS"
-                    specificArgs = {"BiasMagnitude", 6 + 4*rand()};
+                    specificArgs = {"BiasMagnitude", 1 + 4*rand()};
                 case "DRIFT"
-                    specificArgs = {"DriftRateMagnitude", 8 + 2*rand()};
+                    specificArgs = {"DriftRateMagnitude", 0.5 + 2*rand()};
                 case "DROPOUT"
                     specificArgs = {"DropoutAsNaN", true};
                 case "STUCK"
@@ -475,7 +475,42 @@ if scenarioId == "MCV-2"
     fprintf("Mean detection delay: %.3f s\n", meanDetectionDelay);
     fprintf("Max detection delay: %.3f s\n", maxDetectionDelay);
 
-    % Figure for MCV-2?
+    % Per-fault-type results
+    failureClasses = ["BIAS", "DRIFT", "STUCK", "DROPOUT"];
+
+    fprintf("\nMCV-2 Detection Results by Fault Type:\n");
+
+    for j = 1:length(failureClasses)
+        thisFault = failureClasses(j);
+
+        idx = (faultTypeRuns == thisFault);
+        nFault = sum(idx);
+
+        if nFault == 0
+            fprintf("%s: no runs\n", thisFault);
+            continue;
+        end
+
+        detProb = mean(detectedRuns(idx)) * 100;
+        missProb = 100 - detProb;
+
+        thisDelays = detectionDelayRuns(idx & ~isnan(detectionDelayRuns));
+
+        if isempty(thisDelays)
+            meanDelay = NaN;
+            maxDelay = NaN;
+        else
+            meanDelay = mean(thisDelays);
+            maxDelay = max(thisDelays);
+        end
+
+        fprintf("\nFault type: %s\n", thisFault);
+        fprintf("  Runs: %d\n", nFault);
+        fprintf("  Detection probability: %.2f %%\n", detProb);
+        fprintf("  Missed-detection probability: %.2f %%\n", missProb);
+        fprintf("  Mean detection delay: %.3f s\n", meanDelay);
+        fprintf("  Max detection delay: %.3f s\n", maxDelay);
+    end
 end
 
 disp("Scenario complete.");
