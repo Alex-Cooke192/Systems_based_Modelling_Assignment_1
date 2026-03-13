@@ -1,7 +1,7 @@
 %% runBehaviouralScenario.m
 clear; clc;
 
-scenarioId = "MCV-2";   % choose: MCV-1, MCV-2, MCV-3
+scenarioId = "MCV-3";   % choose: MCV-1, MCV-2, MCV-3
 
 %% Simulation parameters
 N = 1000;                 % Number of trials
@@ -29,6 +29,13 @@ req.MCV1.maxFaultEntriesPerRun   = 0;
 req.MCV2.maxDetectionDelay = 0.01;        % seconds
 req.MCV2.minDetectionProbability = 95;   % percent
 
+% MCV-3 redundancy-mismatch requirements
+req.MCV3.minWarnDetectionProbability  = 95;   % percent
+req.MCV3.maxWarnDetectionDelay        = 0.5;  % seconds
+
+req.MCV3.minFaultEscalationProbability = 95;  % percent
+req.MCV3.maxFaultEscalationDelay       = 1.5; % seconds
+
 % Run-level outcome storage
 warnOccured = zeros(N,1);
 faultOccured = zeros(N,1);
@@ -44,6 +51,16 @@ detectionDelayRuns = nan(N,1);
 faultTypeRuns      = strings(N,1);
 faultedSensorRuns  = strings(N,1);
 faultStartRuns     = nan(N,1);
+
+% Run-level detection results for MCV-3
+mismatchStartRuns        = nan(N,1);
+mismatchDurationRuns     = nan(N,1);
+warnDetectedRuns_MCV3    = zeros(N,1);
+faultDetectedRuns_MCV3   = zeros(N,1);
+warnDelayRuns_MCV3       = nan(N,1);
+faultDelayRuns_MCV3      = nan(N,1);
+mismatchMagnitudeRuns    = nan(N,1);
+mismatchModeRuns         = strings(N,1);   % "VS_BIAS", "ALT_BIAS", "BOTH"
 
 %% Monte Carlo loop
 for run = 1:N
@@ -166,14 +183,81 @@ for run = 1:N
             detectedThisRun = false;
             detectionTime = NaN;
 
+
         case "MCV-3"
-            altSensor.Injector = DeterministicInjector("NoiseSigma",0.3,"FaultRatePerSecond",0.1,"W_Stuck",1,"W_Bias",1,"W_Drift",1,"W_Dropout",1,"W_Spike",1);
-            vsSensor.Injector = DeterministicInjector("NoiseSigma",0.3,"FaultRatePerSecond",0.1,"W_Stuck",1,"W_Bias",1,"W_Drift",1,"W_Dropout",1,"W_Spike",1);
-            asSensor.Injector = DeterministicInjector("NoiseSigma",0.3,"FaultRatePerSecond",0.1,"W_Stuck",1,"W_Bias",1,"W_Drift",1,"W_Dropout",1,"W_Spike",1);
-            pitchSensor.Injector = DeterministicInjector("NoiseSigma",0.3,"FaultRatePerSecond",0.1,"W_Stuck",1,"W_Bias",1,"W_Drift",1,"W_Dropout",1,"W_Spike",1);
-            rollSensor.Injector = DeterministicInjector("NoiseSigma",0.3,"FaultRatePerSecond",0.1,"W_Stuck",1,"W_Bias",1,"W_Drift",1,"W_Dropout",1,"W_Spike",1);
-            tempSensor.Injector = DeterministicInjector("NoiseSigma",0.3,"FaultRatePerSecond",0.1,"W_Stuck",1,"W_Bias",1,"W_Drift",1,"W_Dropout",1,"W_Spike",1);
-            oilSensor.Injector = DeterministicInjector("NoiseSigma",0.3,"FaultRatePerSecond",0.1,"W_Stuck",1,"W_Bias",1,"W_Drift",1,"W_Dropout",1,"W_Spike",1);
+            % Randomised mismatch onset and persistence
+            mismatchStart = 5.0 + 5.0*rand();      % 5 to 10 s
+            mismatchDuration = 1.0 + 3.0*rand();   % 1 to 4 s
+
+            mismatchStartRuns(run) = mismatchStart;
+            mismatchDurationRuns(run) = mismatchDuration;
+
+            % Choose how mismatch is created
+            mismatchModes = ["VS_BIAS", "ALT_BIAS", "BOTH"];
+            mmIdx = randi(length(mismatchModes));
+            mismatchMode = mismatchModes(mmIdx);
+            mismatchModeRuns(run) = mismatchMode;
+
+            % Mismatch magnitude
+            % Keep this large enough to trigger redundancy logic under noise
+            mismatchMag = 3 + 5*rand();   % e.g. 3 to 8 units
+            mismatchMagnitudeRuns(run) = mismatchMag;
+
+            % Nominal injectors for all sensors
+            altSensor.Injector   = DeterministicInjector("NoiseSigma", 0.3);
+            vsSensor.Injector    = DeterministicInjector("NoiseSigma", 0.1);
+            asSensor.Injector    = DeterministicInjector("NoiseSigma", 0.1);
+            pitchSensor.Injector = DeterministicInjector("NoiseSigma", 0.3);
+            rollSensor.Injector  = DeterministicInjector("NoiseSigma", 0.3);
+            tempSensor.Injector  = DeterministicInjector("NoiseSigma", 0.5);
+            oilSensor.Injector   = DeterministicInjector("NoiseSigma", 0.2);
+
+            % Inject mismatch by biasing one or both channels during the same window
+            switch mismatchMode
+                case "VS_BIAS"
+                    vsSensor.Injector = DeterministicInjector( ...
+                        "NoiseSigma", 0.1, ...
+                        "Enabled", true, ...
+                        "FaultType", "BIAS", ...
+                        "FaultStartTime", mismatchStart, ...
+                        "FaultDuration", mismatchDuration, ...
+                        "BiasMagnitude", mismatchMag);
+
+                case "ALT_BIAS"
+                    altSensor.Injector = DeterministicInjector( ...
+                        "NoiseSigma", 0.3, ...
+                        "Enabled", true, ...
+                        "FaultType", "BIAS", ...
+                        "FaultStartTime", mismatchStart, ...
+                        "FaultDuration", mismatchDuration, ...
+                        "BiasMagnitude", mismatchMag);
+
+                case "BOTH"
+                    % Opposite-signed biases make mismatch stronger
+                    altBias = mismatchMag/2;
+                    vsBias  = -mismatchMag/2;
+
+                    altSensor.Injector = DeterministicInjector( ...
+                        "NoiseSigma", 0.3, ...
+                        "Enabled", true, ...
+                        "FaultType", "BIAS", ...
+                        "FaultStartTime", mismatchStart, ...
+                        "FaultDuration", mismatchDuration, ...
+                        "BiasMagnitude", altBias);
+
+                    vsSensor.Injector = DeterministicInjector( ...
+                        "NoiseSigma", 0.1, ...
+                        "Enabled", true, ...
+                        "FaultType", "BIAS", ...
+                        "FaultStartTime", mismatchStart, ...
+                        "FaultDuration", mismatchDuration, ...
+                        "BiasMagnitude", vsBias);
+            end
+
+            warnDetectedThisRun = false;
+            faultDetectedThisRun = false;
+            warnDetectionTime = NaN;
+            faultDetectionTime = NaN;
     end
 
     %% Instantiate monitors
@@ -277,6 +361,18 @@ for run = 1:N
 
         [state, ~, ~] = orchestrator.step(states, values, tt);
 
+        if scenarioId == "MCV-3"
+            if ~warnDetectedThisRun && tt >= mismatchStart && state == "WARN"
+                warnDetectedThisRun = true;
+                warnDetectionTime = tt;
+            end
+
+            if ~faultDetectedThisRun && tt >= mismatchStart && state == "FAULT"
+                faultDetectedThisRun = true;
+                faultDetectionTime = tt;
+            end
+        end
+
         switch state
             case "NORMAL"
                 sysStateNum(k) = 0;
@@ -335,6 +431,18 @@ for run = 1:N
     if scenarioId == "MCV-2" && detectedThisRun
         detectedRuns(run) = 1;
         detectionDelayRuns(run) = max(0, detectionTime - faultStart);
+    end
+
+    if scenarioId == "MCV-3"
+        if warnDetectedThisRun
+            warnDetectedRuns_MCV3(run) = 1;
+            warnDelayRuns_MCV3(run) = max(0, warnDetectionTime - mismatchStart);
+        end
+
+        if faultDetectedThisRun
+            faultDetectedRuns_MCV3(run) = 1;
+            faultDelayRuns_MCV3(run) = max(0, faultDetectionTime - mismatchStart);
+        end
     end
 end
 
@@ -427,10 +535,7 @@ if scenarioId == "MCV-2"
         pWithin = mean(validDelays <= req.MCV2.maxDetectionDelay) * 100;
         pBeyond = mean(validDelays > req.MCV2.maxDetectionDelay) * 100;
         
-        txt = sprintf([
-            "Requirement threshold = %.2f s\n"
-            "Proportion <= threshold: %.2f %%\n"
-            "Proportion > threshold: %.2f %%"], req.MCV2.maxDetectionDelay, pWithin, pBeyond);
+        txt = sprintf('Requirement threshold = %.2f s\nProportion <= threshold: %.2f %%\nProportion > threshold: %.2f %%', req.MCV2.maxDetectionDelay, pWithin, pBeyond);
         
         annotation("textbox", ...
             [0.58 0.68 0.25 0.12], ...
@@ -510,6 +615,151 @@ if scenarioId == "MCV-2"
         fprintf("  Missed-detection probability: %.2f %%\n", missProb);
         fprintf("  Mean detection delay: %.3f s\n", meanDelay);
         fprintf("  Max detection delay: %.3f s\n", maxDelay);
+    end
+end
+
+if scenarioId == "MCV-3"
+    warnDetectionProbability  = mean(warnDetectedRuns_MCV3) * 100;
+    faultDetectionProbability = mean(faultDetectedRuns_MCV3) * 100;
+
+    missedWarnProbability  = 100 - warnDetectionProbability;
+    missedFaultProbability = 100 - faultDetectionProbability;
+
+    validWarnDelays  = warnDelayRuns_MCV3(~isnan(warnDelayRuns_MCV3));
+    validFaultDelays = faultDelayRuns_MCV3(~isnan(faultDelayRuns_MCV3));
+
+    fprintf("\nMCV-3 Redundancy Mismatch Results:\n");
+    fprintf("WARN detection probability: %.2f %%\n", warnDetectionProbability);
+    fprintf("WARN missed-detection probability: %.2f %%\n", missedWarnProbability);
+
+    if ~isempty(validWarnDelays)
+        fprintf("WARN mean detection delay: %.3f s\n", mean(validWarnDelays));
+        fprintf("WARN max detection delay: %.3f s\n", max(validWarnDelays));
+    else
+        fprintf("WARN mean detection delay: NaN\n");
+        fprintf("WARN max detection delay: NaN\n");
+    end
+
+    fprintf("\nFAULT escalation probability: %.2f %%\n", faultDetectionProbability);
+    fprintf("Runs with no FAULT escalation: %.2f %%\n", missedFaultProbability);
+
+    if ~isempty(validFaultDelays)
+        fprintf("FAULT mean escalation delay: %.3f s\n", mean(validFaultDelays));
+        fprintf("FAULT max escalation delay: %.3f s\n", max(validFaultDelays));
+    else
+        fprintf("FAULT mean escalation delay: NaN\n");
+        fprintf("FAULT max escalation delay: NaN\n");
+    end
+
+    % Requirement compliance
+    pWarnWithinReq = mean(warnDelayRuns_MCV3 <= req.MCV3.maxWarnDetectionDelay, 'omitnan') * 100;
+    pFaultWithinReq = mean(faultDelayRuns_MCV3 <= req.MCV3.maxFaultEscalationDelay, 'omitnan') * 100;
+
+    fprintf("\nMCV-3 Requirement Check:\n");
+    fprintf("WARN detection probability >= %.2f %% ?  Actual: %.2f %%\n", ...
+        req.MCV3.minWarnDetectionProbability, warnDetectionProbability);
+    fprintf("WARN delay <= %.2f s among detected runs: %.2f %%\n", ...
+        req.MCV3.maxWarnDetectionDelay, pWarnWithinReq);
+
+    fprintf("FAULT escalation probability >= %.2f %% ?  Actual: %.2f %%\n", ...
+        req.MCV3.minFaultEscalationProbability, faultDetectionProbability);
+    fprintf("FAULT delay <= %.2f s among escalated runs: %.2f %%\n", ...
+        req.MCV3.maxFaultEscalationDelay, pFaultWithinReq);
+
+    % Bar chart: detection / escalation probabilities
+    figure
+    bar([warnDetectionProbability faultDetectionProbability])
+    ylabel("Probability (%)")
+    xticklabels(["WARN detected","FAULT escalated"])
+    title("MCV-3 Redundancy Mismatch Detection/Escalation Probability")
+    grid on
+
+    % WARN delay histogram
+    if ~isempty(validWarnDelays)
+        figure
+        histogram(validWarnDelays, 'BinWidth', dt)
+        hold on
+        xline(req.MCV3.maxWarnDetectionDelay, 'r--', 'LineWidth', 2)
+        xlabel("WARN detection delay (s)")
+        ylabel("Count")
+        title("MCV-3 WARN Detection Delay Distribution")
+        grid on
+
+        txt = sprintf('Requirement threshold = %.2f s\n Proportion <= threshold: %.2f %%\n Proportion > threshold: %.2f %%', ...
+            req.MCV3.maxWarnDetectionDelay, ...
+            mean(validWarnDelays <= req.MCV3.maxWarnDetectionDelay)*100, ...
+            mean(validWarnDelays > req.MCV3.maxWarnDetectionDelay)*100);
+
+        annotation("textbox", [0.58 0.68 0.25 0.12], ...
+            "String", txt, ...
+            "FitBoxToText", "on", ...
+            "BackgroundColor", "white");
+        hold off
+    end
+
+    % FAULT delay histogram
+    if ~isempty(validFaultDelays)
+        figure
+        histogram(validFaultDelays, 'BinWidth', dt)
+        hold on
+        xline(req.MCV3.maxFaultEscalationDelay, 'r--', 'LineWidth', 2)
+        xlabel("FAULT escalation delay (s)")
+        ylabel("Count")
+        title("MCV-3 FAULT Escalation Delay Distribution")
+        grid on
+
+        txt = sprintf('Requirement threshold = %.2f s\n Proportion <= threshold: %.2f %%\n" Proportion > threshold: %.2f %%', ...
+            req.MCV3.maxFaultEscalationDelay, ...
+            mean(validFaultDelays <= req.MCV3.maxFaultEscalationDelay)*100, ...
+            mean(validFaultDelays > req.MCV3.maxFaultEscalationDelay)*100);
+
+        annotation("textbox", [0.58 0.68 0.25 0.12], ...
+            "String", txt, ...
+            "FitBoxToText", "on", ...
+            "BackgroundColor", "white");
+        hold off
+    end
+
+    % Breakdown by mismatch mode
+    mismatchModes = ["VS_BIAS", "ALT_BIAS", "BOTH"];
+    fprintf("\nMCV-3 Results by Mismatch Mode:\n");
+
+    for j = 1:length(mismatchModes)
+        thisMode = mismatchModes(j);
+        idx = (mismatchModeRuns == thisMode);
+        nMode = sum(idx);
+
+        if nMode == 0
+            fprintf("%s: no runs\n", thisMode);
+            continue;
+        end
+
+        warnProb_j  = mean(warnDetectedRuns_MCV3(idx)) * 100;
+        faultProb_j = mean(faultDetectedRuns_MCV3(idx)) * 100;
+
+        warnDelays_j  = warnDelayRuns_MCV3(idx & ~isnan(warnDelayRuns_MCV3));
+        faultDelays_j = faultDelayRuns_MCV3(idx & ~isnan(faultDelayRuns_MCV3));
+
+        fprintf("\nMismatch mode: %s\n", thisMode);
+        fprintf("  Runs: %d\n", nMode);
+        fprintf("  WARN detection probability: %.2f %%\n", warnProb_j);
+        fprintf("  FAULT escalation probability: %.2f %%\n", faultProb_j);
+
+        if ~isempty(warnDelays_j)
+            fprintf("  WARN mean delay: %.3f s\n", mean(warnDelays_j));
+            fprintf("  WARN max delay: %.3f s\n", max(warnDelays_j));
+        else
+            fprintf("  WARN mean delay: NaN\n");
+            fprintf("  WARN max delay: NaN\n");
+        end
+
+        if ~isempty(faultDelays_j)
+            fprintf("  FAULT mean delay: %.3f s\n", mean(faultDelays_j));
+            fprintf("  FAULT max delay: %.3f s\n", max(faultDelays_j));
+        else
+            fprintf("  FAULT mean delay: NaN\n");
+            fprintf("  FAULT max delay: NaN\n");
+        end
     end
 end
 
