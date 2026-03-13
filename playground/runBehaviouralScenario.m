@@ -1,7 +1,7 @@
 %% runBehaviouralScenario.m
 clear; clc;
 
-scenarioId = "BV-2";   % choose: BV-1, BV-2, BV-3, BV-4a, BV-4b, BV-4c, BV-4d, BV-5
+scenarioId = "BV-4c";   % choose: BV-1, BV-2, BV-3, BV-4a, BV-4b, BV-4c, BV-4d, BV-5
 
 %% Simulation parameters
 Fs = 10;
@@ -28,6 +28,7 @@ tempSensor.Injector  = DeterministicInjector();
 oilSensor.Injector   = DeterministicInjector();
 
 %% Apply scenario-specific scripted fault
+%% Apply scenario-specific scripted fault
 switch scenarioId
     case "BV-1"
         % Nominal: no injected faults
@@ -38,7 +39,8 @@ switch scenarioId
             "Enabled", true, ...
             "FaultType", "DROPOUT", ...
             "FaultStartTime", 5.0, ...
-            "FaultDuration", 0.8);
+            "FaultDuration", 0.8, ...
+            "DropoutAsNaN", true);
 
     case "BV-3"
         % Non-safety-critical sensor invalid/out-of-range
@@ -46,10 +48,11 @@ switch scenarioId
             "Enabled", true, ...
             "FaultType", "DROPOUT", ...
             "FaultStartTime", 5.0, ...
-            "FaultDuration", 0.8);
+            "FaultDuration", 0.8, ...
+            "DropoutAsNaN", true);
 
     case "BV-4a"
-        % Stuck-at fault
+        % Stuck-at fault on Airspeed
         asSensor.Injector = DeterministicInjector( ...
             "Enabled", true, ...
             "FaultType", "STUCK", ...
@@ -57,7 +60,7 @@ switch scenarioId
             "FaultDuration", 1.2);
 
     case "BV-4b"
-        % Bias fault
+        % Bias fault on Pitch
         pitchSensor.Injector = DeterministicInjector( ...
             "Enabled", true, ...
             "FaultType", "BIAS", ...
@@ -66,7 +69,7 @@ switch scenarioId
             "BiasMagnitude", 5.0);
 
     case "BV-4c"
-        % Drift fault
+        % Drift fault on Roll
         rollSensor.Injector = DeterministicInjector( ...
             "Enabled", true, ...
             "FaultType", "DRIFT", ...
@@ -75,12 +78,13 @@ switch scenarioId
             "DriftRateMagnitude", 3.0);
 
     case "BV-4d"
-        % Dropout fault
+        % Dropout fault on Oil Pressure
         oilSensor.Injector = DeterministicInjector( ...
             "Enabled", true, ...
             "FaultType", "DROPOUT", ...
             "FaultStartTime", 5.0, ...
-            "FaultDuration", 0.8);
+            "FaultDuration", 0.8, ...
+            "DropoutAsNaN", true);
 
     case "BV-5"
         % Redundancy mismatch: bias VS so it disagrees with d(alt)/dt
@@ -209,7 +213,7 @@ for k = 2:length(t)
     end
 end
 
-if scenarioId == "BV-1" || scenarioId == "BV-2" || scenarioId =="BV-3"
+if startsWith(scenarioId, "BV-")
     %% Convert sensor states to numeric values for plotting
     stateMap = containers.Map(["OK","SUSPECT","FAILED"], [0 1 2]);
     numStates = zeros(length(t), 7);
@@ -251,7 +255,7 @@ if scenarioId == "BV-1" || scenarioId == "BV-2" || scenarioId =="BV-3"
     if scenarioId == "BV-2" || scenarioId == "BV-3" || scenarioId == "BV-4a" || ...
        scenarioId == "BV-4b" || scenarioId == "BV-4c" || scenarioId == "BV-4d" || ...
        scenarioId == "BV-5"
-        xline(1.0, '--r', 'Fault injected')
+        xline(5.0, '--r', 'Fault injected')
     end
     
     xlabel("Time (s)")
@@ -265,7 +269,7 @@ if scenarioId == "BV-1" || scenarioId == "BV-2" || scenarioId =="BV-3"
     stairs(t, sysStateNum, 'LineWidth', 2)
 
     % add fault injected marker
-    xline(1.0, '--r', 'Fault injected')
+    xline(5.0, '--r', 'Fault injected')
 
     % Get states
     yticks([0 1 2])
@@ -274,31 +278,89 @@ if scenarioId == "BV-1" || scenarioId == "BV-2" || scenarioId =="BV-3"
     % Add labels to diagram
     xlabel("Time (s)")
     ylabel("System State")
-    title("Overall System State During BV-3")
+    title("Overall System State During " + scenarioId)
 
     grid on
 end
 
-%% Plot fault classification for BV-4 scenarios
+%% Plot detected sensor state for BV-4 scenarios
 if scenarioId == "BV-4a" || scenarioId == "BV-4b" || scenarioId == "BV-4c" || scenarioId == "BV-4d"
 
-    failureClassificationNames = ["Normal", "Stuck-at", "Bias", "Drift", "Spike", "Dropout"];
+    detectedStateNames = ["OK", "SUSPECT", "FAILED"];
+    detectedStateNum = nan(length(t), 1);
+
+    % Select affected sensor column
+    switch scenarioId
+        case "BV-4a"
+            thisSensorStates = sensorStates(:,2);   % Airspeed
+            sensorLabel = "Airspeed";
+            faultName = "Stuck-at"; 
+        case "BV-4b"
+            thisSensorStates = sensorStates(:,4);   % Pitch
+            sensorLabel = "Pitch";
+            faultName = "Bias"; 
+        case "BV-4c"
+            thisSensorStates = sensorStates(:,5);   % Roll
+            sensorLabel = "Roll";
+            faultName = "Drift"; 
+        case "BV-4d"
+            thisSensorStates = sensorStates(:,7);   % Oil Pressure
+            sensorLabel = "Oil Pressure";
+            faultName = "Dropout"; 
+    end
+
+    % Convert state strings to numeric values for plotting
+    for k = 1:length(t)
+        switch string(thisSensorStates(k))
+            case "OK"
+                detectedStateNum(k) = 0;
+            case "SUSPECT"
+                detectedStateNum(k) = 1;
+            case "FAILED"
+                detectedStateNum(k) = 2;
+        end
+    end
 
     figure
-    stairs(t, classifiedStates, 'LineWidth', 2, 'Marker', 'o')
+    stairs(t, detectedStateNum, 'LineWidth', 2)
+    xline(5.0, '--r', faultName + 'Fault Injected')
 
-    xline(1.0, '--r', 'Fault Injected')
+    yticks(0:2)
+    yticklabels(detectedStateNames)
 
-    yticks(0:5)
-    yticklabels(failureClassificationNames)
-
-    ylabel("Injected Fault Classification")
+    ylabel(sensorLabel + " Monitor State")
     xlabel("Time (s)")
-    title(sprintf("Injected Fault Classification During Scenario %s", scenarioId))
+    title(sprintf("Detected Sensor State During Scenario %s and fault type %s", scenarioId, faultName))
     grid on
 end
-
 disp("Scenario complete.");
+
+if scenarioId == "BV-5"
+
+    figure
+
+    subplot(2,1,1)
+    plot(t, vsC_hist, 'LineWidth', 2)
+    hold on
+    plot(t, altSlope_hist, 'LineWidth', 2)
+    xline(5.0, '--r', 'Fault injected')
+    xlabel("Time (s)")
+    ylabel("Rate")
+    title("Redundancy Mismatch Evidence")
+    legend("Vertical Speed", "d(Altitude)/dt", 'Location', 'best')
+    grid on
+
+    subplot(2,1,2)
+    stairs(t, sysStateNum, 'LineWidth', 2)
+    xline(5.0, '--r', 'Fault injected')
+    yticks([0 1 2])
+    yticklabels(["NORMAL","WARN","FAULT"])
+    xlabel("Time (s)")
+    ylabel("System State")
+    title("Orchestrator State")
+    grid on
+
+end
 
 %% Local helper function
 function classId = FaultClassifier(meta)
@@ -341,31 +403,4 @@ function classId = FaultClassifier(meta)
         otherwise
             classId = 0;
     end
-end
-
-if scenarioId == "BV-5"
-
-    figure
-
-    subplot(2,1,1)
-    plot(t, vsC_hist, 'LineWidth', 2)
-    hold on
-    plot(t, altSlope_hist, 'LineWidth', 2)
-    xline(5.0, '--r', 'Fault injected')
-    xlabel("Time (s)")
-    ylabel("Rate")
-    title("Redundancy Mismatch Evidence")
-    legend("Vertical Speed", "d(Altitude)/dt", 'Location', 'best')
-    grid on
-
-    subplot(2,1,2)
-    stairs(t, sysStateNum, 'LineWidth', 2)
-    xline(5.0, '--r', 'Fault injected')
-    yticks([0 1 2])
-    yticklabels(["NORMAL","WARN","FAULT"])
-    xlabel("Time (s)")
-    ylabel("System State")
-    title("Orchestrator State")
-    grid on
-
 end
