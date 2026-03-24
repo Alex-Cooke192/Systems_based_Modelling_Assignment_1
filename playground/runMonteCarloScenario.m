@@ -5,6 +5,11 @@ scenarioId = "MCV-3";   % choose: MCV-1, MCV-2, MCV-3
 
 %% Simulation parameters
 N = 1000;                 % Number of trials
+if scenarioId == "MCV-2"
+    Fs = 100; 
+else 
+    Fs = 10; 
+end
 Fs = 100;
 dt = 1/Fs;
 Tsim = 20;
