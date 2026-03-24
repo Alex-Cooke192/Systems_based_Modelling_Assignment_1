@@ -5,7 +5,7 @@ scenarioId = "MCV-3";   % choose: MCV-1, MCV-2, MCV-3
 
 %% Simulation parameters
 N = 1000;                 % Number of trials
-if scenarioId == "MCV-2"
+if scenarioId == "MCV-2" %% Sampling rate is dependent on the scenario - 0.01s requirement cannot be met for Fs 10 in MCV-2 (dt = 0.1)
     Fs = 100; 
 else 
     Fs = 10; 
