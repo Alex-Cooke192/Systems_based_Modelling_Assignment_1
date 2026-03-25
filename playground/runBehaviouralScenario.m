@@ -1,7 +1,7 @@
 %% runBehaviouralScenario.m
 clear; clc;
 
-scenarioId = "BV-4c";   % choose: BV-1, BV-2, BV-3, BV-4a, BV-4b, BV-4c, BV-4d, BV-5
+scenarioId = "BV-3";   % choose: BV-1, BV-2, BV-3, BV-4a, BV-4b, BV-4c, BV-4d, BV-5
 
 %% Simulation parameters
 Fs = 10;
@@ -255,7 +255,7 @@ if startsWith(scenarioId, "BV-")
     if scenarioId == "BV-2" || scenarioId == "BV-3" || scenarioId == "BV-4a" || ...
        scenarioId == "BV-4b" || scenarioId == "BV-4c" || scenarioId == "BV-4d" || ...
        scenarioId == "BV-5"
-        xline(5.0, '--r', 'Fault injected')
+        xline(5.0, '--r', 'Fault injected at 5.0s')
     end
     
     xlabel("Time (s)")
@@ -269,7 +269,7 @@ if startsWith(scenarioId, "BV-")
     stairs(t, sysStateNum, 'LineWidth', 2)
 
     % add fault injected marker
-    xline(5.0, '--r', 'Fault injected')
+    xline(5.0, '--r', 'Fault injected at 5.0s')
 
     % Get states
     yticks([0 1 2])
