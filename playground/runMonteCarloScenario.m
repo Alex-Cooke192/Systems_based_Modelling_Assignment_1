@@ -4,13 +4,14 @@ clear; clc;
 scenarioId = "MCV-3";   % choose: MCV-1, MCV-2, MCV-3
 
 %% Simulation parameters
-N = 1000;                 % Number of trials
+N = 1000;       % Number of trials
 if scenarioId == "MCV-2" %% Sampling rate is dependent on the scenario - 0.01s requirement cannot be met for Fs 10 in MCV-2 (dt = 0.1)
+    Fs = 100;
+elseif scenarioId == "MCV-3"
     Fs = 100; 
-else 
-    Fs = 10; 
+else
+    Fs = 10;
 end
-Fs = 100;
 dt = 1/Fs;
 Tsim = 20;
 t = 0:dt:Tsim;
@@ -111,13 +112,14 @@ for run = 1:N
     %% Apply scenario-specific configuration
     switch scenarioId
         case "MCV-1"
-            altSensor.Injector = SimpleInjector("NoiseSigma", 0.3, "FaultRatePerSecond", 0.0);
-            vsSensor.Injector = SimpleInjector("NoiseSigma", 0.1, "FaultRatePerSecond", 0.0);
-            asSensor.Injector = SimpleInjector("NoiseSigma", 0.1, "FaultRatePerSecond", 0.0);
-            pitchSensor.Injector = SimpleInjector("NoiseSigma", 0.3, "FaultRatePerSecond", 0.0);
-            rollSensor.Injector = SimpleInjector("NoiseSigma", 0.3, "FaultRatePerSecond", 0.0);
-            tempSensor.Injector = SimpleInjector("NoiseSigma", 0.5, "FaultRatePerSecond", 0.0);
-            oilSensor.Injector = SimpleInjector("NoiseSigma", 0.2, "FaultRatePerSecond", 0.0);
+            noiseScale = 1.0; 
+            altSensor.Injector = SimpleInjector("NoiseSigma", 0.3*noiseScale, "FaultRatePerSecond", 0.0);
+            vsSensor.Injector = SimpleInjector("NoiseSigma", 0.1*noiseScale, "FaultRatePerSecond", 0.0);
+            asSensor.Injector = SimpleInjector("NoiseSigma", 0.1*noiseScale, "FaultRatePerSecond", 0.0);
+            pitchSensor.Injector = SimpleInjector("NoiseSigma", 0.3*noiseScale, "FaultRatePerSecond", 0.0);
+            rollSensor.Injector = SimpleInjector("NoiseSigma", 0.3*noiseScale, "FaultRatePerSecond", 0.0);
+            tempSensor.Injector = SimpleInjector("NoiseSigma", 0.5*noiseScale, "FaultRatePerSecond", 0.0);
+            oilSensor.Injector = SimpleInjector("NoiseSigma", 0.2*noiseScale, "FaultRatePerSecond", 0.0);
 
         case "MCV-2"
             % Choose one fault type per run
@@ -469,6 +471,15 @@ fprintf("FAULT events: %d\n", faultEvents)
 fprintf("FAULT event rate: %.5f\n", faultEventRate)
 
 if scenarioId == "MCV-1"
+    fprintf("Max WARN timesteps/run: %g\n", max(warnTimestepsPerRun));
+    fprintf("Max FAULT timesteps/run: %g\n", max(faultTimestepsPerRun));
+    fprintf("Max WARN entries/run: %g\n", max(warnEntriesPerRun));
+    fprintf("Max FAULT entries/run: %g\n", max(faultEntriesPerRun));
+
+    fprintf("Runs with any WARN: %d / %d\n", sum(warnOccured), N);
+    fprintf("Runs with any FAULT: %d / %d\n", sum(faultOccured), N);
+
+    % Requirement check printout only
     pWarnTimestepsOK  = mean(warnTimestepsPerRun  <= req.MCV1.maxWarnTimestepsPerRun)  * 100;
     pWarnTimestepsBad = mean(warnTimestepsPerRun  >  req.MCV1.maxWarnTimestepsPerRun)  * 100;
 
@@ -491,24 +502,31 @@ if scenarioId == "MCV-1"
     fprintf("FAULT entries/run <= %g: %.2f %% of runs, > threshold: %.2f %%\n", ...
         req.MCV1.maxFaultEntriesPerRun, pFaultEntriesOK, pFaultEntriesBad);
 
+    % OLD LOGIC: event-driven false WARN / false FAULT bar chart
     figure
     bar([warnEventRate*100 faultEventRate*100])
     ylabel("Percentage (%)")
     xticklabels(["False WARN","False FAULT"])
-    title("Monte Carlo Robustness Results")
+    title(sprintf("Monte Carlo Robustness Results under %d runs, treating WARN and FAULT transitions as event-driven", N))
+    yline(2.0, 'r--', 'WARN requirement (2%)', 'LineWidth', 2);
+    yline(0.5, 'k--', 'FAULT requirement (0.5%)', 'LineWidth', 2);
+
+    annotation("textbox", ...
+        [0.65 0.6 0.25 0.25], ...
+        "String", { ...
+        "Noise model:", ...
+        sprintf("Altitude \x03C3 = %.1f m", 0.3*noiseScale), ...
+        sprintf("Vertical Speed \x03C3 = %.1f m/s", 0.1*noiseScale), ...
+        sprintf("Airspeed \x03C3 = %.1f m/s", 0.1*noiseScale), ...
+        sprintf("Pitch \x03C3 = %.1f°", 0.3*noiseScale), ...
+        sprintf("Roll \x03C3 = %.1f°", 0.3*noiseScale), ...
+        sprintf("Temp \x03C3 = %.1f °C", 0.5*noiseScale), ...
+        sprintf("Oil \x03C3 = %.1f bar", 0.2*noiseScale)}, ...
+        "FitBoxToText","on", ...
+        "BackgroundColor","white", ...
+        "EdgeColor","black");
+
     grid on
-
-    plotDistributionWithRequirement(warnTimestepsPerRun, req.MCV1.maxWarnTimestepsPerRun, ...
-        "MCV-1 Distribution: False WARN Timesteps per Run", "False WARN timesteps per run");
-
-    plotDistributionWithRequirement(faultTimestepsPerRun, req.MCV1.maxFaultTimestepsPerRun, ...
-        "MCV-1 Distribution: False FAULT Timesteps per Run", "False FAULT timesteps per run");
-
-    plotDistributionWithRequirement(warnEntriesPerRun, req.MCV1.maxWarnEntriesPerRun, ...
-        "MCV-1 Distribution: False WARN Entries per Run", "False WARN entries per run");
-
-    plotDistributionWithRequirement(faultEntriesPerRun, req.MCV1.maxFaultEntriesPerRun, ...
-        "MCV-1 Distribution: False FAULT Entries per Run", "False FAULT entries per run");
 end
 
 if scenarioId == "MCV-2"
@@ -529,12 +547,15 @@ if scenarioId == "MCV-2"
         figure
         histogram(validDelays, 'BinWidth', binWidth)
         hold on
-        xline(req.MCV2.maxDetectionDelay, 'r--', 'LineWidth', 2)
+        xline(req.MCV2.maxDetectionDelay, 'r--', sprintf('Requirement (%.2f)', req.MCV2.maxDetectionDelay), ... 
+            'LineWidth', 2, ...
+            'labelVerticalAlignment', 'bottom', ...
+            'labelHorizontalAlignment', 'left')
         
         xlim([0 max(validDelays)+binWidth])
         xlabel("Detection delay (s)")
-        ylabel("Count")
-        title("MCV-2 Detection Delay Distribution")
+        ylabel("Probability")
+        title("Disctribution of Redundancy Detection Delays (MCV-2)")
         grid on
         
         pWithin = mean(validDelays <= req.MCV2.maxDetectionDelay) * 100;
@@ -686,7 +707,7 @@ if scenarioId == "MCV-3"
         hold on
         xline(req.MCV3.maxWarnDetectionDelay, 'r--', 'LineWidth', 2)
         xlabel("WARN detection delay (s)")
-        ylabel("Count")
+        ylabel("Probability")
         title("MCV-3 WARN Detection Delay Distribution")
         grid on
 
@@ -709,7 +730,7 @@ if scenarioId == "MCV-3"
         hold on
         xline(req.MCV3.maxFaultEscalationDelay, 'r--', 'LineWidth', 2)
         xlabel("FAULT escalation delay (s)")
-        ylabel("Count")
+        ylabel("Probability")
         title("MCV-3 FAULT Escalation Delay Distribution")
         grid on
 
@@ -722,6 +743,12 @@ if scenarioId == "MCV-3"
             "String", txt, ...
             "FitBoxToText", "on", ...
             "BackgroundColor", "white");
+
+        pctWithin = sum(validFaultDelays <= 1.5) / numel(validFaultDelays) * 100;
+
+        text(1.5, max(ylim)*0.9, ...
+            sprintf('%.2f%% within 1.5s requirement', pctWithin), ...
+            'FontWeight','bold');
         hold off
     end
 
@@ -824,9 +851,8 @@ function plotDistributionWithRequirement(dataVec, threshold, plotTitleStr, xLabe
     title(plotTitleStr)
     grid on
 
-    txt = sprintf(["Requirement threshold = %.3f\n"
-        "Proportion <= threshold: %.2f %%\n"
-        "Proportion > threshold: %.2f %%"], threshold, pBelowEq, pAbove);
+    txt = sprintf("Requirement threshold = %.3f\nProportion <= threshold: %.2f %%\n Proportion > threshold: %.2f %%", ...
+        threshold, pBelowEq, pAbove);
 
     annotation("textbox", ...
         [0.62 0.68 0.25 0.18], ...
@@ -835,4 +861,58 @@ function plotDistributionWithRequirement(dataVec, threshold, plotTitleStr, xLabe
         "BackgroundColor", "white");
 
     hold off
+end
+
+function plotComplianceWithRequirement(dataPerRun, threshold, plotTitle, metricLabel)
+
+    N = numel(dataPerRun);
+
+    % Compliance logic
+    compliantRuns = sum(dataPerRun <= threshold);
+    violatingRuns = sum(dataPerRun > threshold);
+
+    compliantPct = 100 * compliantRuns / N;
+    violatingPct = 100 * violatingRuns / N;
+
+    values = [compliantPct, violatingPct];
+
+    figure;
+    b = bar(values, 'FaceColor', 'flat');
+    b.CData(1,:) = [0.2 0.7 0.2];
+    b.CData(2,:) = [0.85 0.2 0.2];
+
+    set(gca, ...
+        'XTick', [1 2], ...
+        'XTickLabel', {'Compliant', 'Violating'}, ...
+        'FontSize', 11);
+
+    ylabel('Percentage of Runs (%)');
+    title(plotTitle, 'FontWeight', 'bold');
+    ylim([0 100]);
+    grid on;
+    box on;
+
+    % Labels above bars
+    for i = 1:numel(values)
+        text(i, values(i) + 2, sprintf('%.2f%%', values(i)), ...
+            'HorizontalAlignment', 'center', ...
+            'FontWeight', 'bold', ...
+            'FontSize', 11);
+    end
+
+    % Annotation box
+    annotationText = sprintf([ ...
+        'Requirement threshold = %.3f\n' ...
+        'Metric: %s\n' ...
+        'Compliant runs: %d / %d\n' ...
+        'Violating runs: %d / %d'], ...
+        threshold, metricLabel, compliantRuns, N, violatingRuns, N);
+
+    annotation('textbox', [0.58 0.72 0.28 0.16], ...
+        'String', annotationText, ...
+        'FitBoxToText', 'on', ...
+        'BackgroundColor', 'white', ...
+        'EdgeColor', 'black', ...
+        'FontSize', 10);
+
 end
