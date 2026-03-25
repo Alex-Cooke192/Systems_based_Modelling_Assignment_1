@@ -507,12 +507,12 @@ if scenarioId == "MCV-1"
     bar([warnEventRate*100 faultEventRate*100])
     ylabel("Percentage (%)")
     xticklabels(["False WARN","False FAULT"])
-    title(sprintf("Monte Carlo Robustness Results under %d runs, treating WARN and FAULT transitions as event-driven", N))
+    title(sprintf("Monte Carlo False WARN/FAULT Rates (%d runs)", N))
     yline(2.0, 'r--', 'WARN requirement (2%)', 'LineWidth', 2);
     yline(0.5, 'k--', 'FAULT requirement (0.5%)', 'LineWidth', 2);
 
     annotation("textbox", ...
-        [0.65 0.6 0.25 0.25], ...
+        [0.6 0.35 0.25 0.25], ...
         "String", { ...
         "Noise model:", ...
         sprintf("Altitude \x03C3 = %.1f m", 0.3*noiseScale), ...
@@ -578,7 +578,7 @@ if scenarioId == "MCV-2"
         figure
         plot(x, f, 'LineWidth', 2)
         hold on
-        xline(req.MCV2.maxDetectionDelay, 'r--', 'LineWidth', 2)
+        xline(req.MCV2.maxDetectionDelay, 'r--', 'LineWidth', 2, 'Label', 'Max Detectin Delay =  %.3f', req.MCV2.maxDetectionDelay)
 
         pWithin = mean(validDelays <= req.MCV2.maxDetectionDelay) * 100;
 
@@ -697,6 +697,14 @@ if scenarioId == "MCV-3"
     bar([warnDetectionProbability faultDetectionProbability])
     ylabel("Probability (%)")
     xticklabels(["WARN detected","FAULT escalated"])
+    req1 = yline(req.MCV3.minWarnDetectionProbability, 'b--', 'LineWidth', 2, ...
+        'Label', sprintf('WARN Requirement = %.1f', req.MCV3.minWarnDetectionProbability, ...
+        'LabelHorizontalAlignment', 'left')); % Detection requirement line
+    req1.Label = ''; 
+    text(0, req.MCV3.minWarnDetectionProbability, sprintf('WARN Requirement = %.3f', req.MCV3.minWarnDetectionProbability), HorizontalAlignment', 'left')
+    yline(req.MCV3.minFaultEscalationProbability, 'r--', 'LineWidth', 2,... 
+        'Label', sprintf('FAULT Requirement = %.1f', req.MCV3.minFaultEscalationProbability, ...
+        'LabelHorizontalAlignment', 'right')) % Escalation requirement line
     title("MCV-3 Redundancy Mismatch Detection/Escalation Probability")
     grid on
 
